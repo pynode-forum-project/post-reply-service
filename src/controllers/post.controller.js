@@ -6,8 +6,14 @@ const { buildVisibilityFilter, canViewPost, canModifyPost } = require("../utils/
 
 /**
  * GET /posts
- * List posts with pagination
- * Query params: page (default: 1), limit (default: 10)
+ * List posts with pagination, sorting, and filtering
+ * Query params:
+ *   - page (default: 1)
+ *   - limit (default: 10)
+ *   - status (optional) - filter by status
+ *   - sortBy (default: 'dateCreated') - allowed: 'dateCreated', 'dateModified'
+ *   - sortOrder (default: 'desc') - allowed: 'asc', 'desc'
+ *   - userId (optional) - filter by post creator
  */
 const listPosts = async (req, res, next) => {
   try {
@@ -16,6 +22,37 @@ const listPosts = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const statusParam = req.query.status;
 
+    // Parse sort parameters
+    const sortBy = req.query.sortBy || 'dateCreated';
+    const sortOrder = req.query.sortOrder || 'desc';
+    const creatorUserId = req.query.userId;
+
+    // Validate sortBy parameter
+    const allowedSortBy = ['dateCreated', 'dateModified'];
+    if (!allowedSortBy.includes(sortBy)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: `Invalid sortBy. Allowed values: ${allowedSortBy.join(', ')}`,
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
+    // Validate sortOrder parameter
+    const allowedSortOrder = ['asc', 'desc'];
+    if (!allowedSortOrder.includes(sortOrder)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: `Invalid sortOrder. Allowed values: ${allowedSortOrder.join(', ')}`,
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
     // Build visibility filter based on user role
     const statusFilter = buildVisibilityFilter(
       req.user.userId,
@@ -23,12 +60,21 @@ const listPosts = async (req, res, next) => {
       { specificStatus: statusParam }
     );
 
+    // Add creator filter if provided
+    if (creatorUserId) {
+      statusFilter.userId = creatorUserId;
+    }
+
     // Get total count for pagination
     const total = await Post.countDocuments(statusFilter);
 
-    // Fetch posts sorted by dateCreated (newest first)
+    // Build dynamic sort object
+    const sortDirection = sortOrder === 'asc' ? 1 : -1;
+    const sortObj = { [sortBy]: sortDirection };
+
+    // Fetch posts with dynamic sorting and filtering
     const posts = await Post.find(statusFilter)
-      .sort({ dateCreated: -1 })
+      .sort(sortObj)
       .skip(skip)
       .limit(limit)
       .select("-_id -__v")

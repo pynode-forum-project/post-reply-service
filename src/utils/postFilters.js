@@ -134,9 +134,41 @@ const validateStatusTransition = (currentStatus, targetStatus, userType) => {
   };
 };
 
+/**
+ * Validate sort parameters for listing queries
+ * @param {String} sortBy - Field to sort by (default: 'dateCreated')
+ * @param {String} sortOrder - Sort direction (default: 'desc')
+ * @returns {Object} { valid: boolean, sortBy: string, sortOrder: string, error?: string }
+ */
+const validateSortParams = (sortBy = 'dateCreated', sortOrder = 'desc') => {
+  const allowedSortBy = ['dateCreated', 'dateModified'];
+  const allowedSortOrder = ['asc', 'desc'];
+
+  if (!allowedSortBy.includes(sortBy)) {
+    return {
+      valid: false,
+      error: `Invalid sortBy. Allowed values: ${allowedSortBy.join(', ')}`
+    };
+  }
+
+  if (!allowedSortOrder.includes(sortOrder)) {
+    return {
+      valid: false,
+      error: `Invalid sortOrder. Allowed values: ${allowedSortOrder.join(', ')}`
+    };
+  }
+
+  return {
+    valid: true,
+    sortBy,
+    sortOrder
+  };
+};
+
 module.exports = {
   buildVisibilityFilter,
   canViewPost,
   canModifyPost,
-  validateStatusTransition
+  validateStatusTransition,
+  validateSortParams
 };
