@@ -2,6 +2,7 @@ const Post = require("../models/Post");
 const replyService = require("../services/reply.service");
 const fileService = require("../services/file.service");
 const crypto = require("crypto");
+const { buildVisibilityFilter, canViewPost, canModifyPost } = require("../utils/postFilters");
 
 /**
  * GET /posts
@@ -13,18 +14,20 @@ const listPosts = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const statusParam = req.query.status;
 
-    // Check if user is admin
-    const isUserAdmin = ["admin", "superadmin"].includes(req.user?.userType);
-
-    // Build filter: non-admin users don't see archived posts
-    const filter = isUserAdmin ? {} : { isArchived: false };
+    // Build visibility filter based on user role
+    const statusFilter = buildVisibilityFilter(
+      req.user.userId,
+      req.user.userType,
+      { specificStatus: statusParam }
+    );
 
     // Get total count for pagination
-    const total = await Post.countDocuments(filter);
+    const total = await Post.countDocuments(statusFilter);
 
     // Fetch posts sorted by dateCreated (newest first)
-    const posts = await Post.find(filter)
+    const posts = await Post.find(statusFilter)
       .sort({ dateCreated: -1 })
       .skip(skip)
       .limit(limit)
@@ -75,13 +78,12 @@ const getPostById = async (req, res, next) => {
       });
     }
 
-    // Check if non-admin user trying to access archived post
-    const isUserAdmin = ["admin", "superadmin"].includes(req.user?.userType);
-    if (post.isArchived && !isUserAdmin) {
+    // Check if user can view this post
+    if (!canViewPost(post, req.user.userId, req.user.userType)) {
       return res.status(403).json({
         success: false,
         error: {
-          message: "This post has been archived",
+          message: "You do not have permission to view this post",
           statusCode: 403,
           timestamp: new Date().toISOString(),
         },
@@ -118,13 +120,14 @@ const createPost = async (req, res, next) => {
   try {
     const { title, content } = req.body;
     const userId = req.user.userId;
+    const publish = req.body.publish !== 'false'; // Default true
 
-    // Validate required fields
-    if (!title || !content) {
+    // Validate required fields for published posts
+    if (publish && (!title || !content)) {
       return res.status(400).json({
         success: false,
         error: {
-          message: "Title and content are required",
+          message: "Title and content are required to publish",
           statusCode: 400,
           timestamp: new Date().toISOString(),
         },
@@ -192,6 +195,7 @@ const createPost = async (req, res, next) => {
       content,
       images: imageUrls,
       attachments: attachmentUrls,
+      status: publish ? 'published' : 'unpublished',
       isArchived: false,
     });
 
@@ -225,6 +229,18 @@ const updatePost = async (req, res, next) => {
         error: {
           message: "Post not found",
           statusCode: 404,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
+    // Check if user can modify this post
+    if (!canModifyPost(post, req.user.userId, req.user.userType)) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: "Cannot modify post with current status",
+          statusCode: 403,
           timestamp: new Date().toISOString(),
         },
       });
@@ -321,11 +337,12 @@ const updatePost = async (req, res, next) => {
 
 /**
  * DELETE /posts/:id
- * Delete post (soft delete via archive)
+ * Delete post (soft delete via status change to 'deleted')
  */
 const deletePost = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const userId = req.user.userId;
 
     // Find the post
     const post = await Post.findOne({ postId: id });
@@ -341,22 +358,32 @@ const deletePost = async (req, res, next) => {
       });
     }
 
-    // Soft delete: Set isArchived to true
-    post.isArchived = true;
+    // Check ownership (isOwnerOrAdmin middleware already checked this, but be explicit)
+    if (post.userId !== userId && !['admin', 'superadmin'].includes(req.user.userType)) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: "You do not have permission to delete this post",
+          statusCode: 403,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
+    // Soft delete: Set status to 'deleted' and keep files for recovery
+    post.status = 'deleted';
+    post.dateDeleted = new Date();
     post.dateModified = new Date();
 
     await post.save();
 
-    // Optionally delete files from file service
-    const allFiles = [...post.images, ...post.attachments];
-    if (allFiles.length > 0) {
-      await fileService.deleteFiles(allFiles);
-    }
+    // Don't delete files - keep them for recovery purposes
+    // Files will be cleaned up by an admin cleanup job in the future
 
     res.status(200).json({
       success: true,
       data: {
-        message: "Post archived successfully",
+        message: "Post deleted successfully",
         postId: id,
       },
       timestamp: new Date().toISOString(),

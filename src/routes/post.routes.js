@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const postController = require('../controllers/post.controller');
+const postStatusController = require('../controllers/post.status.controller');
 const { authenticateToken, isOwnerOrAdmin, isAdmin } = require('../middleware/auth.middleware');
 const { uploadPostFiles, handleMulterError } = require('../middleware/upload.middleware');
 
@@ -30,13 +31,17 @@ router.put(
   postController.updatePost
 );
 
-// DELETE /posts/:id - Delete post (soft delete via archive) (owner or admin only)
+// DELETE /posts/:id - Delete post (soft delete) (owner or admin only)
 router.delete('/:id', isOwnerOrAdmin, postController.deletePost);
 
-// PATCH /posts/:id/archive - Archive a post (admin only)
-router.patch('/:id/archive', isAdmin, postController.archivePost);
-
-// PATCH /posts/:id/unarchive - Unarchive a post (admin only)
-router.patch('/:id/unarchive', isAdmin, postController.unarchivePost);
+// Status transition routes
+router.patch('/:id/publish', isOwnerOrAdmin, postStatusController.publishPost);
+router.patch('/:id/hide', isOwnerOrAdmin, postStatusController.hidePost);
+router.patch('/:id/unhide', isOwnerOrAdmin, postStatusController.unhidePost);
+router.patch('/:id/ban', isAdmin, postStatusController.banPost);
+router.patch('/:id/unban', isAdmin, postStatusController.unbanPost);
+router.patch('/:id/recover', isAdmin, postStatusController.recoverPost);
+router.patch('/:id/disable-replies', isOwnerOrAdmin, postStatusController.disableReplies);
+router.patch('/:id/enable-replies', isOwnerOrAdmin, postStatusController.enableReplies);
 
 module.exports = router;

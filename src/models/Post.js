@@ -13,20 +13,25 @@ const postSchema = new mongoose.Schema({
     required: true,
     index: true  // For efficient queries by user
   },
+  status: {
+    type: String,
+    enum: ['unpublished', 'published', 'hidden', 'banned', 'deleted'],
+    default: 'published',
+    index: true,
+    required: true
+  },
   isArchived: {
     type: Boolean,
     default: false,
-    index: true  // For filtering archived posts
+    index: true  // For filtering archived posts (deprecated, kept for migration)
   },
   title: {
     type: String,
-    required: [true, 'Title is required'],
     trim: true,
     maxlength: [200, 'Title cannot exceed 200 characters']
   },
   content: {
     type: String,
-    required: [true, 'Content is required'],
     maxlength: [10000, 'Content cannot exceed 10000 characters']
   },
   images: [{
@@ -37,6 +42,10 @@ const postSchema = new mongoose.Schema({
     type: String,  // URLs or file paths
     trim: true
   }],
+  repliesDisabled: {
+    type: Boolean,
+    default: false
+  },
   dateCreated: {
     type: Date,
     default: Date.now,
@@ -46,7 +55,11 @@ const postSchema = new mongoose.Schema({
   dateModified: {
     type: Date,
     default: Date.now
-  }
+  },
+  dateDeleted: Date,
+  dateBanned: Date,
+  bannedBy: String,  // Admin userId
+  bannedReason: String
 }, {
   timestamps: false,  // We manage dates manually
   collection: 'posts'
@@ -60,8 +73,10 @@ postSchema.pre('save', function(next) {
   next();
 });
 
-// Compound index for pagination and filtering
-postSchema.index({ isArchived: 1, dateCreated: -1 });
+// Compound indexes for pagination and filtering
+postSchema.index({ status: 1, dateCreated: -1 });
+postSchema.index({ userId: 1, status: 1, dateCreated: -1 });
+postSchema.index({ isArchived: 1, dateCreated: -1 });  // Keep for backwards compatibility
 
 // Transform output to exclude MongoDB internal fields
 postSchema.set('toJSON', {
