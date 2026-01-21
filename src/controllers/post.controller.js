@@ -393,10 +393,108 @@ const deletePost = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /posts/user/me/drafts
+ * Get current user's drafts (unpublished posts)
+ * Query params: page (default: 1), limit (default: 10)
+ */
+const getUserDrafts = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Filter: current user's unpublished posts
+    const filter = {
+      userId: userId,
+      status: 'unpublished'
+    };
+
+    const total = await Post.countDocuments(filter);
+
+    const drafts = await Post.find(filter)
+      .sort({ dateModified: -1 })  // Most recently modified first
+      .skip(skip)
+      .limit(limit)
+      .select("-_id -__v")
+      .lean();
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        drafts,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1
+        }
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /posts/user/me/top
+ * Get user's top posts sorted by reply count
+ * Query params: limit (default: 3, max: 10)
+ */
+const getUserTopPosts = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const limit = Math.min(parseInt(req.query.limit) || 3, 10);
+
+    // Get all user's published posts
+    const posts = await Post.find({
+      userId: userId,
+      status: 'published'
+    })
+      .select("-_id -__v")
+      .lean();
+
+    // Fetch reply count for each post
+    const postsWithReplyCount = await Promise.all(
+      posts.map(async (post) => {
+        const replies = await replyService.getRepliesForPost(post.postId);
+        return {
+          ...post,
+          replyCount: replies.length
+        };
+      })
+    );
+
+    // Sort by reply count desc and take top N
+    const topPosts = postsWithReplyCount
+      .sort((a, b) => b.replyCount - a.replyCount)
+      .slice(0, limit);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        posts: topPosts,
+        limit
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   listPosts,
   getPostById,
   createPost,
   updatePost,
   deletePost,
+  getUserDrafts,
+  getUserTopPosts
 };

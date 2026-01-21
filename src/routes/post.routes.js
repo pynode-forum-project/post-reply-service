@@ -11,6 +11,12 @@ router.use(authenticateToken);
 // GET /posts - List posts with pagination
 router.get('/', postController.listPosts);
 
+// GET /posts/user/me/drafts - Get current user's drafts
+router.get('/user/me/drafts', postController.getUserDrafts);
+
+// GET /posts/user/me/top - Get current user's top posts
+router.get('/user/me/top', postController.getUserTopPosts);
+
 // GET /posts/:id - Get single post with replies
 router.get('/:id', postController.getPostById);
 
