@@ -316,6 +316,38 @@ The service uses compound indexes to optimize common queries:
 - Manages file deletion
 - Returns S3 URLs for storage
 
+## Recent Changes & Database Design Notes
+
+This project has had a set of interoperability and performance improvements. Please read these notes carefully and update deployment/configuration accordingly.
+
+- **Unified Reply API (contract change):** The service now expects a stable reply API surface. The reply integration uses:
+  - `GET /api/replies?postId={postId}` — returns replies for a post.
+  - `GET /api/replies/count?postIds=id1,id2,...` — returns batch reply counts as `{ success:true, data:{ counts: { postId: number } } }`.
+  The local `reply.service` in this repo calls these unified endpoints; other services should expose the same contract (or configure `REPLY_SERVICE_URL` to a compatible host).
+
+- **Top-posts optimized:** `GET /posts/user/me/top` now uses the batch-count API to fetch reply counts in a single request instead of fetching full reply lists per post.
+
+- **Event publishing (best-effort):** Post and reply creation now publish events to an event endpoint (HTTP POST to `HISTORY_SERVICE_URL/events` by default). Implementations may replace this with a message broker (Kafka/RabbitMQ) later. Events emitted:
+  - `post.created` payload: `{ postId, userId, title, status, createdAt }`
+  - `reply.created` payload: `{ replyId, postId, userId, createdAt }`
+  These are best-effort (failures are logged but do not block the API request).
+
+- **Post model API aliases:** Internally the `Post` document uses `dateCreated` / `dateModified` / `dateDeleted`. For API consistency the model now exposes `createdAt` / `updatedAt` / `deletedAt` aliases in JSON output.
+
+- **Reply storage model (design decision):**
+  - Previously the design preferred embedding replies inside the `Post` document. This implementation uses **references**: replies are stored in a separate `replies` collection (`comment.model.js`) and linked by `postId`.
+  - Rationale: replies can grow unbounded and embedding causes large documents and poor performance; referencing keeps posts small and allows independent scaling and indexing of replies.
+  - Implications: join-like operations require extra queries or aggregation; reply counts are computed via aggregation or maintained separately (see next note).
+
+- **Reply count strategies:**
+  - use the provided batch-count endpoint (`/api/replies/count`) to fetch counts efficiently.
+  
+- **Environment variables added/used:**
+  - `REPLY_SERVICE_URL` — endpoint base for replies API (unchanged meaning but now expected to support `/api/replies` and `/api/replies/count`).
+  - `FILE_SERVICE_URL` — file upload service base URL.
+  - `HISTORY_SERVICE_URL` or `EVENT_BUS_URL` — endpoint that accepts events (default: `http://history-service:5005`).
+
+
 ## Deployment
 
 ### Docker

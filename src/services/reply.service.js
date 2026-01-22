@@ -4,50 +4,54 @@ const REPLY_SERVICE_URL = process.env.REPLY_SERVICE_URL || 'http://localhost:500
 const REQUEST_TIMEOUT = 5000; // 5 seconds
 
 /**
- * Fetch replies for a specific post.
- * Tries several candidate endpoints (backwards-compatible) and gracefully degrades.
- * @param {String} postId - Post ID to fetch replies for
- * @returns {Promise<Array>} Array of replies or empty array if service unavailable
+ * Fetch replies for a specific post using the unified API.
+ * @param {String} postId
+ * @returns {Promise<Array>} replies or empty array
  */
 const getRepliesForPost = async (postId) => {
-  const candidates = [
-    `${REPLY_SERVICE_URL}/api/replies?postId=${postId}`,
-    `${REPLY_SERVICE_URL}/posts/${postId}/replies`,
-    `${REPLY_SERVICE_URL}/posts/${postId}/comments`,
-    `${REPLY_SERVICE_URL}/replies/post/${postId}`,
-    `${REPLY_SERVICE_URL}/api/posts/${postId}/replies`
-  ];
-
-  for (const url of candidates) {
-    try {
-      const response = await axios.get(url, { timeout: REQUEST_TIMEOUT });
-
-      if (!response || !response.data) continue;
-
-      // Support various shapes: { success: true, data: { replies: [...] } },
-      // or direct array payload
-      if (response.data.success && response.data.data) {
-        const payload = response.data.data;
-        if (Array.isArray(payload.replies)) return payload.replies;
-        if (Array.isArray(payload)) return payload;
-      }
-
-      if (Array.isArray(response.data)) return response.data;
-
-      // If the service returned a top-level `replies` field
-      if (response.data.replies && Array.isArray(response.data.replies)) return response.data.replies;
-
-    } catch (err) {
-      // Try next candidate; only log at debug level to avoid noisy logs
-      console.debug(`Reply fetch attempt failed for ${url}: ${err.message}`);
-      // If it's a connection-level failure, keep trying other candidates
-    }
+  try {
+    const url = `${REPLY_SERVICE_URL}/api/replies?postId=${encodeURIComponent(postId)}`;
+    const response = await axios.get(url, { timeout: REQUEST_TIMEOUT });
+    if (!response || !response.data) return [];
+    if (response.data.success && response.data.data && Array.isArray(response.data.data.replies)) return response.data.data.replies;
+    if (Array.isArray(response.data)) return response.data;
+    if (response.data.replies && Array.isArray(response.data.replies)) return response.data.replies;
+    return [];
+  } catch (err) {
+    console.debug(`Failed to fetch replies from ${REPLY_SERVICE_URL}: ${err.message}`);
+    return [];
   }
+};
 
-  // If none succeeded, return empty array (graceful degradation)
-  return [];
+/**
+ * Fetch reply counts for multiple posts in a single call.
+ * Expects the reply service to expose: GET /api/replies/count?postIds=csv
+ * Returns an object mapping postId -> count (0 if missing).
+ * @param {Array<String>} postIds
+ */
+const getReplyCountsForPosts = async (postIds) => {
+  if (!Array.isArray(postIds) || postIds.length === 0) return {};
+  try {
+    const csv = postIds.map(encodeURIComponent).join(',');
+    const url = `${REPLY_SERVICE_URL}/api/replies/count?postIds=${csv}`;
+    const response = await axios.get(url, { timeout: REQUEST_TIMEOUT });
+    if (!response || !response.data) return {};
+    // Support { success: true, data: { counts: { postId: count } } }
+    if (response.data.success && response.data.data && response.data.data.counts) return response.data.data.counts;
+    // Or direct payload { postId: count }
+    if (response.data.counts) return response.data.counts;
+    if (typeof response.data === 'object') return response.data;
+    return {};
+  } catch (err) {
+    console.debug(`Failed to fetch reply counts from ${REPLY_SERVICE_URL}: ${err.message}`);
+    // Graceful degradation: return zeros for requested posts
+    const fallback = {};
+    postIds.forEach((pid) => { fallback[pid] = 0; });
+    return fallback;
+  }
 };
 
 module.exports = {
-  getRepliesForPost
+  getRepliesForPost,
+  getReplyCountsForPosts
 };

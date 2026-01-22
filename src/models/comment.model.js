@@ -26,7 +26,7 @@ ReplySchema.pre('save', function (next) {
 });
 
 // Indexes
-ReplySchema.index({ replyId: 1 });
+// `replyId` already has `index: true` on the field definition; avoid duplicate index declaration.
 ReplySchema.index({ parentReplyId: 1 });
 ReplySchema.index({ postId: 1, parentReplyId: 1 });
 

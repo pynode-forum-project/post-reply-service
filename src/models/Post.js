@@ -46,6 +46,25 @@ const postSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Embedded replies (subdocuments). Kept small because replies per-post expected to be low.
+  replies: [{
+    replyId: { type: String, required: true, index: true },
+    userId: { type: String, required: true, index: true },
+    parentReplyId: { type: String, default: null, index: true },
+    comment: { type: String, required: true },
+    images: { type: [String], default: [] },
+    attachments: { type: [String], default: [] },
+    isActive: { type: Boolean, default: true },
+    userFirstName: { type: String },
+    userLastName: { type: String },
+    userProfileImageURL: { type: String },
+    replies: { type: [String], default: [] },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: String, default: null }
+  }],
   dateCreated: {
     type: Date,
     default: Date.now,
@@ -81,8 +100,13 @@ postSchema.index({ isArchived: 1, dateCreated: -1 });  // Keep for backwards com
 // Transform output to exclude MongoDB internal fields
 postSchema.set('toJSON', {
   transform: function(doc, ret) {
+    // keep DB internal fields out
     delete ret._id;
     delete ret.__v;
+    // provide common API aliases to match typical createdAt/updatedAt naming
+    if (ret.dateCreated && !ret.createdAt) ret.createdAt = ret.dateCreated;
+    if (ret.dateModified && !ret.updatedAt) ret.updatedAt = ret.dateModified;
+    if (ret.dateDeleted && !ret.deletedAt) ret.deletedAt = ret.dateDeleted;
     return ret;
   }
 });

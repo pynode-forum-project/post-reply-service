@@ -4,7 +4,7 @@ const connectDB = require('./src/config/database');
 const postRoutes = require('./src/routes/post.routes');
 const commentsRoutes = require('./src/routes/comments');
 const { authenticateToken } = require('./src/middleware/auth.middleware');
-const { listReplies } = require('./src/controllers/comments.controller');
+const commentsController = require('./src/controllers/comments.controller');
 const { errorHandler, notFoundHandler } = require('./src/middleware/error.middleware');
 
 const app = express();
@@ -47,13 +47,15 @@ app.use('/replies', commentsRoutes);
 app.use('/', postRoutes);
 
 // Expose a flat replies API for other services or clients: GET /api/replies?postId=...
-app.get('/api/replies', authenticateToken, listReplies);
+app.get('/api/replies', authenticateToken, commentsController.listReplies);
+// Expose batch counts: GET /api/replies/count?postIds=id1,id2
+app.get('/api/replies/count', authenticateToken, commentsController.getReplyCounts);
 
 // Legacy route compatibility: /replies/post/:postId
 app.get('/replies/post/:postId', authenticateToken, (req, res, next) => {
   // map to listReplies which expects req.params.id or req.query.postId
   req.params.id = req.params.postId;
-  return listReplies(req, res, next);
+  return commentsController.listReplies(req, res, next);
 });
 
 // Error handling
