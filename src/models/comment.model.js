@@ -25,5 +25,10 @@ ReplySchema.pre('save', function (next) {
   next();
 });
 
+// Indexes
+ReplySchema.index({ replyId: 1 });
+ReplySchema.index({ parentReplyId: 1 });
+ReplySchema.index({ postId: 1, parentReplyId: 1 });
+
 const Reply = mongoose.model('Reply', ReplySchema, 'replies');
 module.exports = Reply;

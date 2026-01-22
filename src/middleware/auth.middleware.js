@@ -15,8 +15,11 @@ function authenticateToken(req, res, next) {
 	try {
 		const secret = process.env.JWT_SECRET || 'secret';
 		const payload = jwt.verify(token, secret);
+		const uid = payload.userId || payload.sub || payload.id;
+		// Provide both `id` and `userId` for compatibility across controllers
 		req.user = {
-			userId: payload.userId || payload.sub || payload.id,
+			id: uid,
+			userId: uid,
 			userType: payload.userType || payload.role || 'user'
 		};
 		return next();
