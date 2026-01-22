@@ -107,7 +107,8 @@ Indexes recommended:
 
 ## Ownership check (delete permission)
 
-To determine whether the requester is the post owner, the service will attempt a GET to `POST_SERVICE_URL/api/posts/:postId` and inspect common response shapes for the owner field (e.g. `data.userId`, `data.ownerId`, etc.). If your Post service uses a specific shape (for example `{ data: { post: { id, authorId }}}`), please let us know so we can make the owner resolution deterministic.
+
+To determine whether the requester is the post owner, the service will attempt a GET to `POST_SERVICE_URL/api/posts/:postId` and inspect the response. Per the API contract, the Post service returns the post object with the owner's id under the `userId` field (e.g. `{ "postId": "...", "userId": "...", ... }`). The controller prefers `userId` but also accepts common alternative shapes (e.g. `ownerId` or nested `post.user.userId`) if present.
 
 If the Post service cannot be reached, the delete operation will only succeed for the reply author (post-owner check will be skipped and treated as not allowed).
 

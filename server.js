@@ -1,3 +1,7 @@
+require('dotenv').config({ path: './.env' });
+console.log('FINAL MONGO_URL =', process.env.POST_DB_URL);
+
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');

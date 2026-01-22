@@ -74,9 +74,16 @@ async function deleteComment(req, res, next) {
       // fetch post to check owner
       try {
         const resp = await axios.get(`${POST_SERVICE_URL}/api/posts/${postId}`);
-        const postPayload = resp.data && (resp.data.data || resp.data.post || resp.data);
-        const postOwner = postPayload && (postPayload.userId || postPayload.ownerId || (postPayload.user && postPayload.user.id));
-        if (postOwner && postOwner === requesterId) allowed = true;
+          // According to the API contract, GET /api/posts returns a post object containing `userId` as the owner.
+          // We try common wrappers but prefer `userId`.
+          const body = resp.data;
+          const postPayload = body && (body.data || body.post || body);
+          const postOwner = postPayload && (
+            postPayload.userId ||
+            postPayload.ownerId ||
+            (postPayload.user && (postPayload.user.userId || postPayload.user.id))
+          );
+          if (postOwner && postOwner === requesterId) allowed = true;
       } catch (e) {
         console.warn('Unable to fetch post info for ownership check:', e.message);
       }
