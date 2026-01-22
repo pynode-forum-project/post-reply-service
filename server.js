@@ -1,32 +1,74 @@
-require('dotenv').config({ path: './.env' });
-console.log('FINAL MONGO_URL =', process.env.POST_DB_URL);
-
-
+require('dotenv').config();
 const express = require('express');
-const bodyParser = require('body-parser');
-const mongoose = require('mongoose');
-const commentsRouter = require('./src/routes/comments');
+const connectDB = require('./src/config/database');
+const postRoutes = require('./src/routes/post.routes');
+const { errorHandler, notFoundHandler } = require('./src/middleware/error.middleware');
 
 const app = express();
-app.use(bodyParser.json());
-
 const PORT = process.env.PORT || 5002;
-const MONGO_URL = process.env.POST_DB_URL || process.env.MONGO_URL || 'mongodb://localhost:27017/postdb';
 
-mongoose.connect(MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('Connected to MongoDB for post-reply-service'))
-  .catch(err => {
-    console.error('MongoDB connection error', err.message);
-    process.exit(1);
+// Connect to MongoDB
+connectDB();
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// CORS middleware (if needed for direct testing)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Post service is running',
+    timestamp: new Date().toISOString(),
+    service: 'post-service',
+    version: '1.0.0'
   });
-
-app.use('/', commentsRouter);
-
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.status || 500).json({ success: false, error: { message: err.message } });
 });
 
+// Mount routes (no /posts prefix here - gateway handles that)
+app.use('/', postRoutes);
+
+// Error handling
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+// Start server
 app.listen(PORT, () => {
-  console.log(`post-reply-service listening on port ${PORT}`);
+  console.log(`
+  ========================================
+  Post Service is running
+  ========================================
+  Port: ${PORT}
+  Environment: ${process.env.NODE_ENV || 'development'}
+  MongoDB: ${process.env.MONGODB_URI || 'mongodb://localhost:27017/forum_posts'}
+  Reply Service: ${process.env.REPLY_SERVICE_URL || 'http://localhost:5003'}
+  File Service: ${process.env.FILE_SERVICE_URL || 'http://localhost:5004'}
+  ========================================
+  `);
 });
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('\nSIGINT received, shutting down gracefully...');
+  process.exit(0);
+});
+
+module.exports = app;
