@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const postController = require('../controllers/post.controller');
 const postStatusController = require('../controllers/post.status.controller');
+const replyController = require('../controllers/reply.controller');
 const { authenticateToken, isOwnerOrAdmin, isAdmin } = require('../middleware/auth.middleware');
 const { uploadPostFiles, handleMulterError } = require('../middleware/upload.middleware');
 
@@ -20,6 +21,12 @@ router.get('/user/me/top', postController.getUserTopPosts);
 // GET /posts/:id - Get single post with replies
 router.get('/:id', postController.getPostById);
 
+// GET /posts/:id/replies - get replies for a post (proxy to reply controller)
+router.get('/:id/replies', (req, res, next) => {
+  req.params.postId = req.params.id;
+  return replyController.getRepliesByPost(req, res, next);
+});
+
 // POST /posts - Create new post with file uploads
 router.post(
   '/',
@@ -27,6 +34,12 @@ router.post(
   handleMulterError,
   postController.createPost
 );
+
+// POST /posts/:id/replies - create a reply for a post (proxy to reply controller)
+router.post('/:id/replies', (req, res, next) => {
+  req.params.postId = req.params.id;
+  return replyController.createReply(req, res, next);
+});
 
 // PUT /posts/:id - Update existing post (owner or admin only)
 router.put(

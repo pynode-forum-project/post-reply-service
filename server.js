@@ -2,13 +2,21 @@ require('dotenv').config();
 const express = require('express');
 const connectDB = require('./src/config/database');
 const postRoutes = require('./src/routes/post.routes');
+const replyRoutes = require('./src/routes/reply.routes');
 const { errorHandler, notFoundHandler } = require('./src/middleware/error.middleware');
 
 const app = express();
 const PORT = process.env.PORT || 5002;
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB and start server after connection
+(async () => {
+  await connectDB();
+
+  // Start server only after DB connected
+  app.listen(PORT, () => {
+    console.log(`\n  ========================================\n  Post Service is running\n  ========================================\n  Port: ${PORT}\n  Environment: ${process.env.NODE_ENV || 'development'}\n  MongoDB: ${process.env.MONGODB_URI || 'mongodb://localhost:27017/forum_posts'}\n  ========================================\n  `);
+  });
+})();
 
 // Middleware
 app.use(express.json());
@@ -40,27 +48,17 @@ app.get('/health', (req, res) => {
 
 // Mount routes under both root and the gateway's rewritten prefix
 // Gateway may proxy requests with a /api/posts prefix; support both.
+// Mount post routes and reply routes
 app.use('/', postRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/replies', replyRoutes);
+app.use('/api/replies', replyRoutes);
 
 // Error handling
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`
-  ========================================
-  Post Service is running
-  ========================================
-  Port: ${PORT}
-  Environment: ${process.env.NODE_ENV || 'development'}
-  MongoDB: ${process.env.MONGODB_URI || 'mongodb://localhost:27017/forum_posts'}
-  Reply Service: ${process.env.REPLY_SERVICE_URL || 'http://localhost:5003'}
-  File Service: ${process.env.FILE_SERVICE_URL || 'http://localhost:5004'}
-  ========================================
-  `);
-});
+// (server started after DB connect above)
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
