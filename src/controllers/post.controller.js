@@ -1,6 +1,7 @@
 const Post = require("../models/Post");
 const replyService = require("../services/reply.service");
 const fileService = require("../services/file.service");
+const eventService = require("../services/event.service");
 const crypto = require("crypto");
 const { buildVisibilityFilter, canViewPost, canModifyPost } = require("../utils/postFilters");
 
@@ -246,6 +247,19 @@ const createPost = async (req, res, next) => {
     });
 
     await newPost.save();
+
+    // Publish post.created event (best-effort)
+    try {
+      await eventService.publishEvent('post.created', {
+        postId: newPost.postId,
+        userId: newPost.userId,
+        title: newPost.title,
+        status: newPost.status,
+        createdAt: newPost.dateCreated || new Date().toISOString()
+      });
+    } catch (e) {
+      console.debug('Event publish failed:', e.message);
+    }
 
     res.status(201).json({
       success: true,
@@ -506,16 +520,13 @@ const getUserTopPosts = async (req, res, next) => {
       .select("-_id -__v")
       .lean();
 
-    // Fetch reply count for each post
-    const postsWithReplyCount = await Promise.all(
-      posts.map(async (post) => {
-        const replies = await replyService.getRepliesForPost(post.postId);
-        return {
-          ...post,
-          replyCount: replies.length
-        };
-      })
-    );
+    // Efficiently fetch reply counts for all posts in a single call
+    const postIds = posts.map(p => p.postId);
+    const countsMap = await replyService.getReplyCountsForPosts(postIds);
+    const postsWithReplyCount = posts.map(post => ({
+      ...post,
+      replyCount: Number(countsMap[post.postId] || 0)
+    }));
 
     // Sort by reply count desc and take top N
     const topPosts = postsWithReplyCount

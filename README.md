@@ -316,6 +316,38 @@ The service uses compound indexes to optimize common queries:
 - Manages file deletion
 - Returns S3 URLs for storage
 
+## Recent Changes & Database Design Notes
+
+This project has had a set of interoperability and performance improvements. Please read these notes carefully and update deployment/configuration accordingly.
+
+- **Unified Reply API (contract change):** The service now expects a stable reply API surface. The reply integration uses:
+  - `GET /api/replies?postId={postId}` — returns replies for a post.
+  - `GET /api/replies/count?postIds=id1,id2,...` — returns batch reply counts as `{ success:true, data:{ counts: { postId: number } } }`.
+  The local `reply.service` in this repo calls these unified endpoints; other services should expose the same contract (or configure `REPLY_SERVICE_URL` to a compatible host).
+
+- **Top-posts optimized:** `GET /posts/user/me/top` now uses the batch-count API to fetch reply counts in a single request instead of fetching full reply lists per post.
+
+- **Event publishing (best-effort):** Post and reply creation now publish events to an event endpoint (HTTP POST to `HISTORY_SERVICE_URL/events` by default). Implementations may replace this with a message broker (Kafka/RabbitMQ) later. Events emitted:
+  - `post.created` payload: `{ postId, userId, title, status, createdAt }`
+  - `reply.created` payload: `{ replyId, postId, userId, createdAt }`
+  These are best-effort (failures are logged but do not block the API request).
+
+- **Post model API aliases:** Internally the `Post` document uses `dateCreated` / `dateModified` / `dateDeleted`. For API consistency the model now exposes `createdAt` / `updatedAt` / `deletedAt` aliases in JSON output.
+
+- **Reply storage model (design decision):**
+  - Previously the design preferred embedding replies inside the `Post` document. This implementation uses **references**: replies are stored in a separate `replies` collection (`comment.model.js`) and linked by `postId`.
+  - Rationale: replies can grow unbounded and embedding causes large documents and poor performance; referencing keeps posts small and allows independent scaling and indexing of replies.
+  - Implications: join-like operations require extra queries or aggregation; reply counts are computed via aggregation or maintained separately (see next note).
+
+- **Reply count strategies:**
+  - use the provided batch-count endpoint (`/api/replies/count`) to fetch counts efficiently.
+  
+- **Environment variables added/used:**
+  - `REPLY_SERVICE_URL` — endpoint base for replies API (unchanged meaning but now expected to support `/api/replies` and `/api/replies/count`).
+  - `FILE_SERVICE_URL` — file upload service base URL.
+  - `HISTORY_SERVICE_URL` or `EVENT_BUS_URL` — endpoint that accepts events (default: `http://history-service:5005`).
+
+
 ## Deployment
 
 ### Docker
@@ -418,6 +450,55 @@ const response = await fetch('/api/posts/user/me/top?limit=3', {
   method: 'GET',
   headers: { 'Authorization': `Bearer ${token}` }
 });
+
+## Replies API (Reply-Service contract)
+
+The reply service provides server-side aggregation with top-level pagination and lazy-loading of children. Frontend and other services should use the canonical endpoints below.
+
+1) Top-level (paged) replies
+
+- Endpoint: `GET /posts/:postId/replies?topOnly=true&page=1&limit=10`
+- Purpose: return top-level replies (those with `parentReplyId == null`) for the given post, paginated.
+- Response (example):
+
+```
+{
+  "success": true,
+  "data": {
+    "replies": [
+      {"replyId":"r1","userId":"u1","comment":"...","createdAt":"...","replyCount":3,"hasChildren":true}
+    ],
+    "pagination": {"page":1,"limit":10,"total":100}
+  }
+}
+```
+
+Notes: include `hasChildren` or `replyCount` so the frontend can display an "expand" control without fetching children.
+
+2) Children (lazy-loaded) replies
+
+- Endpoint: `GET /posts/:postId/children?parentId=REPLY_ID&page=1&limit=20`
+- Purpose: return direct children of a specific parent reply, paginated.
+- Response: same shape as top-level but with `parentReplyId` set on each item.
+
+3) Optional full-tree (restricted)
+
+- Endpoint: `GET /posts/:postId/replies?tree=true&maxDepth=2`
+- Purpose: return a nested reply tree assembled by the service up to `maxDepth`. Use cautiously for small threads or admin views.
+
+Frontend responsibilities
+
+- Use the top-level endpoint for initial rendering and call the children endpoint when the user expands a reply. Filter out replies with `isDeleted === true` or `isActive === false`.
+- Show loading and retry UI for children requests; gracefully degrade if reply-service is unavailable.
+
+Server responsibilities
+
+- Ensure indexes on the `replies` collection (`{ postId:1, parentReplyId:1 }`).
+- Enforce `maxDepth` and response size limits for tree endpoints; implement pagination for top-level and children endpoints.
+- Use transactions for create/delete to keep parent `replies` arrays consistent, or provide compensating jobs if transactions are unavailable.
+
+Document and agree on these endpoints in your API contract and update `post-service` and the frontend to consume the canonical paths above.
+
 ```
 
 ## Future Enhancements
