@@ -46,6 +46,7 @@ const postSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Replies are managed by a separate reply service; embedded replies removed
   dateCreated: {
     type: Date,
     default: Date.now,

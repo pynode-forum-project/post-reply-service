@@ -38,8 +38,10 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Mount routes (no /posts prefix here - gateway handles that)
+// Mount routes under both root and the gateway's rewritten prefix
+// Gateway may proxy requests with a /api/posts prefix; support both.
 app.use('/', postRoutes);
+app.use('/api/posts', postRoutes);
 
 // Error handling
 app.use(notFoundHandler);

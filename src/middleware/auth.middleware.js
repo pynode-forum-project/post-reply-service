@@ -22,15 +22,35 @@ const authenticateToken = (req, res, next) => {
       });
     }
 
-    // Verify token
-    const secret = process.env.JWT_SECRET || 'your-secret-key';
-    const decoded = jwt.verify(token, secret);
+    // Verify token using primary secret, fall back to alternate secret if verification fails
+    const primarySecret = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || 'your-secret-key';
+    const alternateSecret = (process.env.JWT_SECRET && process.env.JWT_SECRET_KEY && process.env.JWT_SECRET !== process.env.JWT_SECRET_KEY)
+      ? process.env.JWT_SECRET_KEY
+      : null;
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, primarySecret);
+    } catch (err) {
+      // If primary fails and we have an alternate, try it
+      if (alternateSecret) {
+        try {
+          decoded = jwt.verify(token, alternateSecret);
+          console.warn('JWT verified with alternate secret');
+        } catch (err2) {
+          throw err2;
+        }
+      } else {
+        throw err;
+      }
+    }
 
     // Attach user info to request object
+    // Accept both camelCase and snake_case keys from different auth providers
     req.user = {
-      userId: decoded.userId || decoded.sub,
-      userType: decoded.userType || decoded.type,
-      email: decoded.email
+      userId: decoded.userId || decoded.sub || decoded.user_id,
+      userType: decoded.userType || decoded.type || decoded.user_type,
+      email: decoded.email || decoded.user_email || decoded.email_address
     };
 
     next();

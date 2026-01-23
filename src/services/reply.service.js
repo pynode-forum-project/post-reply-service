@@ -1,6 +1,7 @@
 const axios = require('axios');
 
-const REPLY_SERVICE_URL = process.env.REPLY_SERVICE_URL || 'http://localhost:5003';
+// Prefer a container address by default when running in compose
+const REPLY_SERVICE_URL = process.env.REPLY_SERVICE_URL || 'http://reply-service:5003';
 const REQUEST_TIMEOUT = 5000; // 5 seconds
 
 /**

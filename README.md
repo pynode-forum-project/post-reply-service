@@ -75,7 +75,7 @@ MONGODB_URI=mongodb://localhost:27017/forum_posts
 JWT_SECRET=your-secret-key-here
 NODE_ENV=development
 FILE_SERVICE_URL=http://file-service:3000
-REPLY_SERVICE_URL=http://reply-service:5001
+REPLY_SERVICE_URL=http://reply-service:5003
 ```
 
 3. **Start the service:**
@@ -210,6 +210,62 @@ Retrieves user's top 3 published posts sorted by reply count.
 - `{ status: 1, dateCreated: -1 }` - Optimizes list queries
 - `{ userId: 1, status: 1, dateCreated: -1 }` - Optimizes creator filtering
 - `{ postId: 1 }` - Unique index for fast lookups
+
+## Replies (Reply Service)
+
+Replies are managed by a separate Reply Service. The Post model no longer embeds reply subdocuments — replies are authoritative in the reply service and are fetched at runtime by the Post service.
+
+Reply Service contract (read):
+
+- Endpoint: `GET /replies/post/:postId`
+- Response shape (success):
+
+```json
+{
+  "success": true,
+  "data": {
+    "replies": [
+      {
+        "replyId": "uuid-string",
+        "postId": "uuid-string",
+        "userId": "uuid-string",
+        "parentReplyId": null,
+        "comment": "Reply text",
+        "images": ["https://..."],
+        "attachments": ["https://..."],
+        "isActive": true,
+        "userFirstName": "John",
+        "userLastName": "Doe",
+        "userProfileImageURL": "https://...",
+        "createdAt": "2026-01-21T12:00:00.000Z",
+        "updatedAt": "2026-01-21T12:00:00.000Z",
+        "isDeleted": false,
+        "deletedAt": null,
+        "deletedBy": null
+      }
+    ]
+  }
+}
+```
+
+Reply fields (expected):
+
+- `replyId` (String, UUID) — unique identifier for the reply
+- `postId` (String, UUID) — the `postId` this reply belongs to
+- `userId` (String, UUID) — author user id
+- `parentReplyId` (String | null) — for nested replies
+- `comment` (String) — reply content
+- `images` (String[]) — optional image URLs
+- `attachments` (String[]) — optional attachment URLs
+- `isActive` (Boolean) — whether reply is active/visible
+- `userFirstName`, `userLastName`, `userProfileImageURL` — denormalized author info for display
+- `createdAt`, `updatedAt` (ISO timestamps)
+- `isDeleted`, `deletedAt`, `deletedBy` — soft-delete metadata
+
+Behavior notes:
+
+- The Post service calls the Reply service for reply lists and counts (graceful degradation: if the Reply service is unavailable the Post service will return the post without replies).
+- If you intend to migrate to a single-source-of-truth model, pick either embedded replies in Post (denormalized, faster reads, harder to scale) or separate Reply service (normalized, scalable). Current code favors the Reply service as authoritative.
 
 ## Features
 
