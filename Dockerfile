@@ -1,16 +1,15 @@
 FROM node:18-alpine
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Install dependencies first for better caching
 COPY package*.json ./
-RUN npm install --production
 
-# Copy source
-COPY . .
+RUN npm install --omit=dev
+
+COPY src/ ./src/
+
+RUN mkdir -p logs
 
 EXPOSE 5002
 
-ENV NODE_ENV=production
-
-CMD ["node", "server.js"]
+CMD ["npm", "start"]

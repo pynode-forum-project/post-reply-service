@@ -1,500 +1,100 @@
-# Post-Reply Service
+# Post & Reply Service
 
-A microservice for managing forum posts with support for sorting, filtering, creating, updating, and deleting posts. Includes draft management and top posts ranking by reply count.
+Overview
+- This microservice manages posts and replies (including nested replies) for the ForumProject.
+- Built with Express + Mongoose; expects to run behind a gateway that provides authentication headers.
 
-## Overview
+**Architecture**
+- **Entry**: `src/index.js` — Express app, connects to MongoDB, registers middleware and routes.
+- **Routes**: `src/routes/postRoutes.js`, `src/routes/replyRoutes.js` — REST endpoints for posts and replies.
+- **Controllers**: `src/controllers/postController.js`, `src/controllers/replyController.js` — business logic, pagination, nested-reply handling.
+- **Models**: `src/models/Post.js`, `src/models/Reply.js` — Mongoose schemas. `Reply` supports nested `replies` arrays.
+- **Service clients**: `src/services/userClient.js` — fetches user info from User Service with a small in-memory cache.
+- **Middleware & utils**: `src/middleware/validators.js`, `src/middleware/errorHandler.js`, `src/utils/logger.js`.
 
-The Post-Reply Service is responsible for:
-- Creating, reading, updating, and deleting posts
-- Managing post status (published, unpublished, hidden, banned, deleted)
-- Sorting posts by date (creation and modification)
-- Filtering posts by creator (userId)
-- Retrieving user drafts and top posts
-- Integrating with reply service for reply counts
-- Role-based access control (admin, user)
+**Key behaviors & design notes**
+- Reply nesting: replies are stored as embedded sub-documents in the `Reply` document (`replies` array). Controllers use recursive logic to traverse, count, add, or soft-delete nested replies.
+- Reply counts: `Post.replyCount` is maintained for quick queries, but controllers also compute accurate counts (including nested replies) where necessary (aggregation or recursive counting).
+- Soft delete: posts and replies are soft-deleted via `status` (for posts) or `isActive` (for replies) to allow recovery and auditing.
+- Auth & authorization: this service trusts `x-user-id` and `x-user-type` headers provided by an upstream gateway; it enforces resource-level permissions (owner / post owner / admin) for sensitive operations.
+- Resilience: `userClient` calls user service with a 5s timeout and caches responses for 5 minutes to reduce latency.
 
-## Technology Stack
+**Environment variables**
+- `PORT` — port to run the service (default: `5002`).
+- `MONGODB_URI` — MongoDB connection string (default: `mongodb://localhost:27017/post_db`).
+- `USER_SERVICE_URL` — base URL for the user service used by `userClient` (default: `http://localhost:5001`).
+- `NODE_ENV`, `LOG_LEVEL` — runtime and logging controls.
 
-- **Runtime:** Node.js
-- **Framework:** Express.js
-- **Database:** MongoDB with Mongoose ODM
-- **Authentication:** JWT (JSON Web Tokens)
-- **Port:** 5002
+**Install & Run**
+1. Install dependencies:
 
-## Project Structure
-
-```
-post-reply-service/
-├── src/
-│   ├── config/
-│   │   └── database.js              # MongoDB connection setup
-│   ├── middleware/
-│   │   ├── auth.middleware.js       # JWT token validation
-│   │   └── error.middleware.js      # Global error handling
-│   ├── models/
-│   │   └── Post.js                  # Post schema and model
-│   ├── controllers/
-│   │   └── post.controller.js       # Request handlers for posts
-│   ├── routes/
-│   │   └── post.routes.js           # API route definitions
-│   ├── services/
-│   │   └── reply.service.js         # Reply service integration
-│   │   └── file.service.js          # File upload/storage handling
-│   └── utils/
-│       └── postFilters.js           # Filter and validation utilities
-├── server.js                         # Express app setup
-├── package.json                      # Dependencies
-├── .env.example                      # Environment template
-└── README.md                         # This file
-```
-
-## Installation
-
-### Prerequisites
-- Node.js v16+
-- MongoDB running locally or remote connection string
-- JWT_SECRET for token signing
-
-### Setup
-
-1. **Clone and install dependencies:**
 ```bash
-cd post-reply-service
 npm install
 ```
 
-2. **Configure environment variables:**
-```bash
-cp .env.example .env
-```
+2. Start (development):
 
-Edit `.env` with your settings:
-```
-PORT=5002
-MONGODB_URI=mongodb://localhost:27017/forum_posts
-JWT_SECRET=your-secret-key-here
-NODE_ENV=development
-FILE_SERVICE_URL=http://file-service:3000
-REPLY_SERVICE_URL=http://reply-service:5003
-```
-
-3. **Start the service:**
-```bash
-npm start
-```
-
-For development with auto-reload:
 ```bash
 npm run dev
 ```
 
-## API Endpoints
+3. Start (production):
 
-All endpoints require JWT authentication (Bearer token in Authorization header).
-
-### Posts
-
-#### List Posts
-```
-GET /posts
-```
-
-**Query Parameters:**
-- `page` (default: 1) - Pagination page number
-- `limit` (default: 10) - Posts per page
-- `sortBy` (default: 'dateCreated') - Sort field: `dateCreated` or `dateModified`
-- `sortOrder` (default: 'desc') - Sort direction: `asc` or `desc`
-- `userId` (optional) - Filter by creator
-- `status` (optional) - Filter by status
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "posts": [...],
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "total": 45,
-      "totalPages": 5,
-      "hasNextPage": true,
-      "hasPrevPage": false
-    }
-  },
-  "timestamp": "2026-01-21T12:00:00Z"
-}
-```
-
-#### Get Single Post
-```
-GET /posts/:postId
-```
-
-Returns post details with associated replies.
-
-#### Create Post
-```
-POST /posts
-Content-Type: multipart/form-data
-```
-
-**Fields:**
-- `title` (string, required if publish=true)
-- `content` (string, required if publish=true)
-- `publish` (boolean, default: true) - Publish or save as draft
-- `images` (file[], optional) - Image files
-- `attachments` (file[], optional) - Attachment files
-
-#### Update Post
-```
-PUT /posts/:postId
-Content-Type: multipart/form-data
-```
-
-**Fields:**
-- `title` (string, optional)
-- `content` (string, optional)
-- `removeImages` (string[], optional) - Image URLs to remove
-- `removeAttachments` (string[], optional) - Attachment URLs to remove
-- `images` (file[], optional) - New images to add
-- `attachments` (file[], optional) - New attachments to add
-
-#### Delete Post
-```
-DELETE /posts/:postId
-```
-
-Soft delete - sets status to 'deleted'.
-
-#### Get User Drafts
-```
-GET /posts/user/me/drafts
-```
-
-**Query Parameters:**
-- `page` (default: 1)
-- `limit` (default: 10)
-
-#### Get User's Top Posts
-```
-GET /posts/user/me/top
-```
-
-Retrieves user's top 3 published posts sorted by reply count.
-
-**Query Parameters:**
-- `limit` (default: 3, max: 10)
-
-## Database Schema
-
-### Post Model
-
-```javascript
-{
-  postId: String (UUID, unique),
-  userId: String (creator's user ID),
-  title: String,
-  content: String,
-  images: [String] (S3 URLs),
-  attachments: [String] (S3 URLs),
-  status: String (published, unpublished, hidden, banned, deleted),
-  isArchived: Boolean (default: false),
-  dateCreated: Date (immutable),
-  dateModified: Date (auto-updated),
-  dateDeleted: Date (optional, for soft deletes)
-}
-```
-
-### Indexes
-- `{ status: 1, dateCreated: -1 }` - Optimizes list queries
-- `{ userId: 1, status: 1, dateCreated: -1 }` - Optimizes creator filtering
-- `{ postId: 1 }` - Unique index for fast lookups
-
-## Replies (Reply Service)
-
-Replies are managed by a separate Reply Service. The Post model no longer embeds reply subdocuments — replies are authoritative in the reply service and are fetched at runtime by the Post service.
-
-Reply Service contract (read):
-
-- Endpoint: `GET /replies/post/:postId`
-- Response shape (success):
-
-```json
-{
-  "success": true,
-  "data": {
-    "replies": [
-      {
-        "replyId": "uuid-string",
-        "postId": "uuid-string",
-        "userId": "uuid-string",
-        "parentReplyId": null,
-        "comment": "Reply text",
-        "images": ["https://..."],
-        "attachments": ["https://..."],
-        "isActive": true,
-        "userFirstName": "John",
-        "userLastName": "Doe",
-        "userProfileImageURL": "https://...",
-        "createdAt": "2026-01-21T12:00:00.000Z",
-        "updatedAt": "2026-01-21T12:00:00.000Z",
-        "isDeleted": false,
-        "deletedAt": null,
-        "deletedBy": null
-      }
-    ]
-  }
-}
-```
-
-Reply fields (expected):
-
-- `replyId` (String, UUID) — unique identifier for the reply
-- `postId` (String, UUID) — the `postId` this reply belongs to
-- `userId` (String, UUID) — author user id
-- `parentReplyId` (String | null) — for nested replies
-- `comment` (String) — reply content
-- `images` (String[]) — optional image URLs
-- `attachments` (String[]) — optional attachment URLs
-- `isActive` (Boolean) — whether reply is active/visible
-- `userFirstName`, `userLastName`, `userProfileImageURL` — denormalized author info for display
-- `createdAt`, `updatedAt` (ISO timestamps)
-- `isDeleted`, `deletedAt`, `deletedBy` — soft-delete metadata
-
-Behavior notes:
-
-- The Post service calls the Reply service for reply lists and counts (graceful degradation: if the Reply service is unavailable the Post service will return the post without replies).
-- If you intend to migrate to a single-source-of-truth model, pick either embedded replies in Post (denormalized, faster reads, harder to scale) or separate Reply service (normalized, scalable). Current code favors the Reply service as authoritative.
-
-## Features
-
-### 1. Sorting
-- **By Creation Date:** Newest first (default) or oldest first
-- **By Modification Date:** Most recently modified first or oldest modifications
-- Configurable via `sortBy` and `sortOrder` query parameters
-
-### 2. Filtering
-- **By Status:** Published, unpublished, hidden, banned, deleted
-- **By Creator:** Filter posts by specific user ID
-- **Role-based:** Admins see published/banned/deleted; users see only published (except their own)
-
-### 3. Draft Management
-- Save posts as unpublished drafts
-- Retrieve all personal drafts
-- Edit and publish drafts later
-- Differentiate drafts from published posts
-
-### 4. File Handling
-- Upload images and attachments
-- Store URLs in post document
-- Remove specific files from posts
-- Integration with file service for S3 storage
-
-### 5. Access Control
-- **Public Users:** See only published posts
-- **Post Owner:** Can edit own posts, view all own posts regardless of status
-- **Admins:** Can view and moderate all posts, change status
-
-## Error Handling
-
-All errors follow a consistent format:
-
-```json
-{
-  "success": false,
-  "error": {
-    "message": "Error description",
-    "statusCode": 400,
-    "timestamp": "2026-01-21T12:00:00Z"
-  }
-}
-```
-
-### Common Status Codes
-- `200` - Success
-- `201` - Created
-- `400` - Validation error or invalid parameters
-- `401` - Unauthorized (missing/invalid token)
-- `403` - Forbidden (no permission)
-- `404` - Not found
-- `500` - Server error
-
-## Validation Rules
-
-### sortBy Parameter
-- Must be: `dateCreated` or `dateModified`
-- Returns 400 if invalid
-
-### sortOrder Parameter
-- Must be: `asc` or `desc`
-- Returns 400 if invalid
-
-### Post Title & Content
-- Required for published posts
-- Optional for drafts
-
-### File Uploads
-- Validated by file service
-- Size limits enforced at upload time
-
-## Performance Considerations
-
-### Database Indexes
-The service uses compound indexes to optimize common queries:
-- List published posts by date: Uses `{ status: 1, dateCreated: -1 }`
-- Filter by creator: Uses `{ userId: 1, status: 1, dateCreated: -1 }`
-
-### Pagination
-- Default limit: 10 posts
-- Recommended limit: 5-20 posts
-- Always use pagination to avoid large result sets
-
-### Lean Queries
-- Uses `.lean()` for read-only operations
-- Faster query execution, lower memory usage
-- Applied to list and get operations
-
-## Integration Points
-
-### Authentication (JWT)
-- Validates tokens from auth service
-- Extracts userId, userType, email from token claims
-- Required for all endpoints
-
-### Reply Service Integration
-- Fetches reply count for top posts endpoint
-- Validates post existence before recording views (history service)
-- Timeout: 5 seconds with graceful degradation
-
-### File Service Integration
-- Uploads images and attachments
-- Manages file deletion
-- Returns S3 URLs for storage
-
-## Deployment
-
-### Docker
 ```bash
-docker build -t post-reply-service .
-docker run -p 5002:5002 --env-file .env post-reply-service
+npm start
 ```
 
-### Environment Variables
-- `PORT` - Service port (default: 5002)
-- `MONGODB_URI` - MongoDB connection string
-- `JWT_SECRET` - Secret key for JWT validation
-- `NODE_ENV` - Environment (development/production)
-- `FILE_SERVICE_URL` - File service URL
-- `REPLY_SERVICE_URL` - Reply service URL
+Health check
+- GET /health
 
-## Testing
+Examples (selected endpoints)
+- Get published posts (paginated):
 
-Run tests:
 ```bash
-npm test
+curl 'http://localhost:5002/posts?page=1&limit=20'
 ```
 
-Test coverage:
+- Create a post (gateway should supply `x-user-id` header):
+
 ```bash
-npm run test:coverage
+curl -X POST http://localhost:5002/posts \
+  -H "Content-Type: application/json" \
+  -H "x-user-id: 123" \
+  -d '{"title":"Hello","content":"World","status":"published"}'
 ```
 
-## Debugging
+- Get replies for a post:
 
-Enable debug logging:
 ```bash
-DEBUG=post-reply-service:* npm start
+curl http://localhost:5002/replies/post/<POST_ID>
 ```
 
-## Troubleshooting
+- Create a reply:
 
-### "Invalid sortBy" Error
-- Check allowed values: `dateCreated`, `dateModified`
-- Case-sensitive
-
-### "Invalid sortOrder" Error
-- Check allowed values: `asc`, `desc`
-- Case-sensitive
-
-### Posts not appearing
-- Check user's role and post status
-- Admins see: published, banned, deleted
-- Users see: published (only)
-
-### File upload fails
-- Check file service availability
-- Verify file size limits
-- Check S3 bucket permissions
-
-## API Usage Examples
-
-### Frontend Integration
-
-```javascript
-// Get newest posts
-const response = await fetch('/api/posts?page=1&limit=10', {
-  method: 'GET',
-  headers: { 'Authorization': `Bearer ${token}` }
-});
-
-// Get oldest posts
-const response = await fetch('/api/posts?sortOrder=asc', {
-  method: 'GET',
-  headers: { 'Authorization': `Bearer ${token}` }
-});
-
-// Get user's posts
-const response = await fetch('/api/posts?userId=user-123&sortOrder=asc', {
-  method: 'GET',
-  headers: { 'Authorization': `Bearer ${token}` }
-});
-
-// Create published post with file
-const formData = new FormData();
-formData.append('title', 'My Post');
-formData.append('content', 'Content here');
-formData.append('publish', true);
-formData.append('images', imageFile);
-
-const response = await fetch('/api/posts', {
-  method: 'POST',
-  headers: { 'Authorization': `Bearer ${token}` },
-  body: formData
-});
-
-// Get user's drafts
-const response = await fetch('/api/posts/user/me/drafts?page=1', {
-  method: 'GET',
-  headers: { 'Authorization': `Bearer ${token}` }
-});
-
-// Get top 3 posts by replies
-const response = await fetch('/api/posts/user/me/top?limit=3', {
-  method: 'GET',
-  headers: { 'Authorization': `Bearer ${token}` }
-});
+```bash
+curl -X POST http://localhost:5002/replies/post/<POST_ID> \
+  -H "Content-Type: application/json" \
+  -H "x-user-id: 123" \
+  -d '{"comment":"Nice post!"}'
 ```
 
-## Future Enhancements
+**Logging & errors**
+- Uses `winston` to write `logs/error.log` and `logs/combined.log`; console logging enabled in non-production.
+- Errors are handled by `src/middleware/errorHandler.js` which maps Mongoose and HTTP errors to consistent responses.
 
-- [ ] Full-text search capability
-- [ ] Post categories/tags
-- [ ] Pinned posts
-- [ ] Post scheduling (publish at specific time)
-- [ ] Revision history for posts
-- [ ] Batch operations (delete multiple posts)
-- [ ] Advanced filtering (date range, keyword search)
-- [ ] Post analytics (view count, reply count trends)
+**Testing**
+- `npm test` runs Jest tests (if present).
 
-## Support
+**Operational notes / caveats**
+- Because nested replies are stored inside `Reply` documents, very deep or very large reply trees may produce large documents — consider migrating to a referenced model if reply volume per post grows very large.
+- The service assumes an upstream gateway enforces authentication; it performs authorization checks using headers only.
 
-For issues or questions:
-1. Check the API documentation: `/frontend/src/docs/auth-api-contract.md`
-2. Review error messages and status codes
-3. Verify environment configuration
-4. Check service logs: `npm start` and look for error output
+**Where to look in code**
+- Entry point: `src/index.js`
+- Posts logic: `src/controllers/postController.js`
+- Replies & nested logic: `src/controllers/replyController.js`
+- Models: `src/models/Post.js`, `src/models/Reply.js`
+- External user lookup: `src/services/userClient.js`
 
-## License
-
-Private project - Do not distribute
+License
+- See repository license at the project root.
