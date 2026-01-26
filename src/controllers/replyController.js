@@ -61,21 +61,6 @@ exports.getRepliesByPost = async (req, res, next) => {
       Reply.countDocuments({ postId, isActive: true })
     ]);
 
-    // Recursively count all nested replies
-    const countNestedReplies = (replies) => {
-      if (!replies || !Array.isArray(replies)) return 0;
-      let count = 0;
-      replies.forEach(reply => {
-        if (reply.isActive !== false) {
-          count += 1;
-          if (reply.replies && Array.isArray(reply.replies)) {
-            count += countNestedReplies(reply.replies);
-          }
-        }
-      });
-      return count;
-    };
-
     // Calculate total count including nested replies
     let totalNestedCount = 0;
     const allReplies = await Reply.find({ postId, isActive: true });
@@ -83,6 +68,7 @@ exports.getRepliesByPost = async (req, res, next) => {
       totalNestedCount += countNestedReplies(reply.replies);
     }
     const total = topLevelCount + totalNestedCount;
+    const topLevelTotal = topLevelCount;
 
     // Fetch user info for each reply
     const repliesWithUsers = await Promise.all(
@@ -153,9 +139,11 @@ exports.getRepliesByPost = async (req, res, next) => {
     res.json({
       replies: repliesWithUsers,
       total,
+      topLevelTotal,
       page,
       limit,
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
+      topLevelPages: Math.ceil(topLevelTotal / limit)
     });
   } catch (error) {
     next(error);
@@ -323,7 +311,7 @@ exports.createSubReply = async (req, res, next) => {
     // If targetPath is provided, use it to navigate to the target
     if (targetPath && Array.isArray(targetPath) && targetPath.length > 0) {
       let current = topLevelReply;
-      for (let i = 0; i < targetPath.length - 1; i++) {
+      for (let i = 0; i < targetPath.length; i++) {
         const index = targetPath[i];
         if (current.replies && current.replies[index]) {
           current = current.replies[index];
@@ -352,6 +340,7 @@ exports.createSubReply = async (req, res, next) => {
       }
     }
 
+    topLevelReply.markModified('replies');
     await topLevelReply.save();
 
     // Update post reply count (includes nested replies)
@@ -425,6 +414,7 @@ exports.deleteNestedReply = async (req, res, next) => {
     // Soft delete the nested reply
     current.replies[targetIndex].isActive = false;
 
+    parentReply.markModified('replies');
     await parentReply.save();
 
     // Update post reply count
