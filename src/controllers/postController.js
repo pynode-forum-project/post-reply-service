@@ -187,6 +187,24 @@ exports.getUserDrafts = async (req, res, next) => {
 };
 
 /**
+ * Get user's hidden posts
+ */
+exports.getUserHidden = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.headers['x-user-id']);
+    
+    const posts = await Post.find({ 
+      userId, 
+      status: 'hidden' 
+    }).sort({ dateCreated: -1 });
+
+    res.json({ posts });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get banned posts (Admin only)
  */
 exports.getBannedPosts = async (req, res, next) => {

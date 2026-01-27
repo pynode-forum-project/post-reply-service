@@ -6,6 +6,7 @@ const { validatePost, validatePostUpdate } = require('../middleware/validators')
 // Public routes (still require auth from gateway)
 router.get('/', postController.getPublishedPosts);
 router.get('/drafts', postController.getUserDrafts);
+router.get('/hidden', postController.getUserHidden);
 router.get('/banned', postController.getBannedPosts);
 router.get('/deleted', postController.getDeletedPosts);
 router.get('/:id', postController.getPostById);
