@@ -192,7 +192,7 @@ Retrieves user's top 3 published posts sorted by reply count.
 
 ```javascript
 {
-  postId: String (UUID, unique),
+  postId: String (mapped from Mongo _id),
   userId: String (creator's user ID),
   title: String,
   content: String,
@@ -209,7 +209,7 @@ Retrieves user's top 3 published posts sorted by reply count.
 ### Indexes
 - `{ status: 1, dateCreated: -1 }` - Optimizes list queries
 - `{ userId: 1, status: 1, dateCreated: -1 }` - Optimizes creator filtering
-- `{ postId: 1 }` - Unique index for fast lookups
+- `_id` (default unique index created by MongoDB)
 
 ## Features
 
